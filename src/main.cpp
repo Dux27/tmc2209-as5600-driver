@@ -6,7 +6,7 @@
 // Wire1 = SDA1, SCL1
 // Wire2 = SDA2, SCL2 
 
-// -------------------- User Settings ------------------------------------
+// User Settings 
 #define R_SENSE 0.11f                     // TMC2209 sense resistor
 #define DRIVER_ADDRESS 0b00               // UART address
 #define SERIAL_PORT Serial1               // Teensy UART port
@@ -20,7 +20,7 @@
 uint16_t STEP_DELAY = 140;                // microseconds (us) per step pulse.
 bool ACCELERATE = true;                  // Whether to use acceleration profile 
 
-// -------------------- Initialize driver and encoder --------------------
+// AS5600 parameters
 #define AS5600_ADDRESS 0x36               // Fixed I2C AS5600 address
 #define ANGLE_REG_HIGH 0x0C               // Register addresses for angle high byte
 #define ANGLE_REG_LOW  0x0D               // Register addresses for angle low byte
@@ -57,7 +57,7 @@ void setup() {
   driver.rms_current(MOTOR_CURRENT);
   driver.microsteps(MICROSTEPS);
 
-  // Initialize scaled absolute position once
+  // Initialize scaled absolute position 
   scaled_abs_pos = as5600_found ? calculateScaledAbsPos() : 0xFFFF;
 }
 
@@ -104,7 +104,7 @@ void stepAcc(uint32_t commanded_steps, uint32_t step_index) {
   // microseconds (us)
   const uint16_t MAX_STEP_DELAY = 160;      // 6.25 kHz
   const uint16_t MIN_STEP_DELAY = 80;       // 12.5 kHZ
-  uint16_t acc_ramp = MICROSTEPS * 50;      // Steps in the ramp
+  uint16_t acc_ramp = MICROSTEPS * 40;      // Steps in the ramp
 
   uint32_t mid_point = commanded_steps / 2u;
   if (acc_ramp > mid_point) acc_ramp = mid_point;
@@ -120,7 +120,7 @@ void stepAcc(uint32_t commanded_steps, uint32_t step_index) {
     STEP_DELAY = MAX_STEP_DELAY - ((MAX_STEP_DELAY - MIN_STEP_DELAY) * (step_index + 1u)) / acc_ramp;
   } else if (step_index >= commanded_steps - acc_ramp) {
     // Decelerate 
-    uint32_t decelerate_step_index = (commanded_steps - 1u) - step_index; // 0..acc_ramp-1 from end
+    uint32_t decelerate_step_index = (commanded_steps - 1u) - step_index; // 0..(acc_ramp-1) 
     STEP_DELAY = MIN_STEP_DELAY + ((MAX_STEP_DELAY - MIN_STEP_DELAY) * ((acc_ramp - 1u) - decelerate_step_index)) / acc_ramp;
   } else {
     STEP_DELAY = MIN_STEP_DELAY;
@@ -184,7 +184,6 @@ void stepMotor(int steps, bool direction) {
     stepAcc(steps, i);
     stepPulse();
 
-    // Now sample after actual steps: every 400 steps and at the end
     if (as5600_found && (((i + 1) % 400) == 0 || i == steps - 1)) {
       scaled_abs_pos = calculateScaledAbsPos();
       if (scaled_abs_pos == 0xFFFF) {
@@ -203,6 +202,7 @@ void stepMotor(int steps, bool direction) {
       Serial.print(steps_done);
       Serial.print(" | Degrees: ");
       Serial.println(degrees, 2);
+      // Serial.println("Step delay: " + String(STEP_DELAY));
     }
   }
   uint32_t end_time = micros();
