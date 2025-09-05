@@ -1,5 +1,6 @@
 #include <TMCStepper.h>
 #include <Wire.h>
+#include <ctime>
 // I2C pins - SDA (Data), SCL (Clock)
 // Wire = SDA0, SCL0
 // Wire1 = SDA1, SCL1
@@ -16,8 +17,9 @@
 #define MOTOR_CURRENT 1000                // RMS current in mA
 #define MICROSTEPS 16                     // Fixed microsteps for your board
 #define STEPS_PER_REV (200 * MICROSTEPS)  // Full rotation steps
-#define STEP_DELAY 120                    // microseconds (us) per step pulse.
- 
+uint16_t STEP_DELAY = 140;                // microseconds (us) per step pulse.
+bool ACCELERATE = true;                  // Whether to use acceleration profile 
+
 // -------------------- Initialize driver and encoder --------------------
 #define AS5600_ADDRESS 0x36               // Fixed I2C AS5600 address
 #define ANGLE_REG_HIGH 0x0C               // Register addresses for angle high byte
@@ -26,7 +28,7 @@
 TMC2209Stepper driver(&SERIAL_PORT, R_SENSE, DRIVER_ADDRESS);
 bool as5600_found = false;
 
-uint16_t scaledAbsPos;
+uint16_t scaled_abs_pos;
 
 uint16_t calculateScaledAbsPos();
 
@@ -56,7 +58,7 @@ void setup() {
   driver.microsteps(MICROSTEPS);
 
   // Initialize scaled absolute position once
-  scaledAbsPos = as5600_found ? calculateScaledAbsPos() : 0xFFFF;
+  scaled_abs_pos = as5600_found ? calculateScaledAbsPos() : 0xFFFF;
 }
 
 uint16_t readAngle() {
@@ -74,24 +76,60 @@ uint16_t readAngle() {
 }
 
 uint16_t calculateScaledAbsPos() {
-  uint16_t rawAngle = readAngle();
-  if (rawAngle != 0xFFFF) {
+  uint16_t raw_angle = readAngle();
+  if (raw_angle != 0xFFFF) {
     // AS5600 gives 12-bit value (0 - 4095)
-    uint16_t angle12bit = rawAngle & 0x0FFF;  // ANDing with 0x0FFF keeps the lower 12 bits and sets the upper 4 bits to 0.
-    uint32_t mappedMicrosteps = ((uint32_t)angle12bit * (uint32_t)STEPS_PER_REV + 2048u) / 4096u;  // Map to 0-3199 microsteps
-    return (uint16_t)mappedMicrosteps;
+    uint16_t angle_12bit = raw_angle & 0x0FFF;  // ANDing with 0x0FFF keeps the lower 12 bits and sets the upper 4 bits to 0.
+    uint32_t mapped_microsteps = ((uint32_t)angle_12bit * (uint32_t)STEPS_PER_REV + 2048u) / 4096u;  // Map to 0-3199 microsteps
+    return (uint16_t)mapped_microsteps;
   }
   return 0xFFFF;  // Error code = max 16 bit value
 }
 
-int16_t deltaMicrosteps(uint16_t startSteps, uint16_t endSteps) {
-  int16_t delta = endSteps - startSteps;
+int16_t deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) {
+  int16_t delta = end_steps - start_steps;
 
   // Handle wrap-around
   if (delta > STEPS_PER_REV / 2) delta -= STEPS_PER_REV;
   if (delta < -STEPS_PER_REV / 2) delta += STEPS_PER_REV;
 
   return delta;
+}
+
+void stepAcc(uint32_t commanded_steps, uint32_t step_index) {
+  if (!ACCELERATE) return;
+
+  const uint16_t ACC_THRESHOLD = 10 * MICROSTEPS;   // Seems legit
+  const uint16_t MAX_STEP_DELAY = 160;   //  microseconds (us). 4 kHz
+  const uint16_t MIN_STEP_DELAY = 80;    //  12.5 kHZ
+
+  if (commanded_steps < ACC_THRESHOLD)
+    STEP_DELAY = MAX_STEP_DELAY;
+  else {
+    uint32_t mid_point = commanded_steps / 2;
+    if (step_index < mid_point) {
+      // Accelerate
+      STEP_DELAY = MAX_STEP_DELAY - ((MAX_STEP_DELAY - MIN_STEP_DELAY) * step_index) / mid_point;
+    } else {
+      // Decelerate
+      STEP_DELAY = MIN_STEP_DELAY + ((MAX_STEP_DELAY - MIN_STEP_DELAY) * (step_index - mid_point)) / (commanded_steps - mid_point);
+    }
+    // Don't exceed limits
+    if (STEP_DELAY < MIN_STEP_DELAY) STEP_DELAY = MIN_STEP_DELAY;
+    if (STEP_DELAY > MAX_STEP_DELAY) STEP_DELAY = MAX_STEP_DELAY;
+  }
+}
+
+float calcRPM(uint32_t start_time, uint32_t end_time, uint32_t commanded_steps) {
+  // This function take time in microseconds
+
+  uint32_t delta = end_time - start_time;
+  if (delta == 0) return 0.0f;
+
+  float rotations = float(commanded_steps) / float(STEPS_PER_REV);
+  float RPM = rotations / (float(delta) / 60.0f / 1.0e6f);
+
+  return RPM;
 }
 
 static inline void stepPulse() {
@@ -108,51 +146,58 @@ void stepMotor(int steps, bool direction) {
 
   digitalWrite(DIR_PIN, direction ? HIGH : LOW);
 
-  uint16_t microstepBuffer = scaledAbsPos;  // ensure initialized
-  int32_t totalSteps = 0;                   // widen to avoid overflow
+  uint16_t microstep_buffer = scaled_abs_pos;  // ensure initialized
+  int32_t total_steps = 0;                     // widen to avoid overflow
 
   // Take a baseline BEFORE the first step so Steps Done starts at 0
   if (as5600_found) {
-    uint16_t startPos = calculateScaledAbsPos();
-    if (startPos != 0xFFFF) {
-      microstepBuffer = startPos;
-      scaledAbsPos = startPos;
+    uint16_t start_pos = calculateScaledAbsPos();
+    if (start_pos != 0xFFFF) {
+      microstep_buffer = start_pos;
+      scaled_abs_pos = start_pos;
 
-      float degrees0 = (startPos * 360.0f) / (float)STEPS_PER_REV;
-      int32_t stepsDone0 = totalSteps >= 0 ? totalSteps : -totalSteps;
+      float degrees_0 = (start_pos * 360.0f) / (float)STEPS_PER_REV;
+      int32_t steps_done_0 = total_steps >= 0 ? total_steps : -total_steps;
       Serial.print("Scaled absolute position: ");
-      Serial.print(startPos);
+      Serial.print(start_pos);
       Serial.print(" | Steps Done: ");
-      Serial.print(stepsDone0);
+      Serial.print(steps_done_0);
       Serial.print(" | Degrees: ");
-      Serial.println(degrees0, 2);
+      Serial.println(degrees_0, 2);
     }
   }
 
+  uint32_t start_time = micros();
+
   for (int i = 0; i < steps; i++) {
+    stepAcc(steps, i);
     stepPulse();
 
     // Now sample after actual steps: every 400 steps and at the end
     if (as5600_found && (((i + 1) % 400) == 0 || i == steps - 1)) {
-      scaledAbsPos = calculateScaledAbsPos();
-      if (scaledAbsPos == 0xFFFF) {
+      scaled_abs_pos = calculateScaledAbsPos();
+      if (scaled_abs_pos == 0xFFFF) {
         Serial.println("Error reading angle");
         continue;
       }
 
-      float degrees = (scaledAbsPos * 360.0f) / (float)STEPS_PER_REV;
-      totalSteps += deltaMicrosteps(microstepBuffer, scaledAbsPos);
-      microstepBuffer = scaledAbsPos;
+      float degrees = (scaled_abs_pos * 360.0f) / (float)STEPS_PER_REV;
+      total_steps += deltaMicrosteps(microstep_buffer, scaled_abs_pos);
+      microstep_buffer = scaled_abs_pos;
 
-      int32_t stepsDone = totalSteps >= 0 ? totalSteps : -totalSteps;
+      int32_t steps_done = total_steps >= 0 ? total_steps : -total_steps;
       Serial.print("Scaled absolute position: ");
-      Serial.print(scaledAbsPos);
+      Serial.print(scaled_abs_pos);
       Serial.print(" | Steps Done: ");
-      Serial.print(stepsDone);
+      Serial.print(steps_done);
       Serial.print(" | Degrees: ");
       Serial.println(degrees, 2);
     }
   }
+  uint32_t end_time = micros();
+  float RPM = calcRPM(start_time, end_time, steps);
+  Serial.print("RPM: ");
+  Serial.println(RPM, 2); 
 }
 
 void stepMotorWithCompensation(int steps, bool direction) {
@@ -166,8 +211,8 @@ void stepMotorWithCompensation(int steps, bool direction) {
   }
 
   // Baseline before motion
-  uint16_t prevPos = calculateScaledAbsPos();
-  if (prevPos == 0xFFFF) {
+  uint16_t prev_pos = calculateScaledAbsPos();
+  if (prev_pos == 0xFFFF) {
     Serial.println("Step motor with compensation unavaible. Start position error.");
     stepMotor(steps, direction); 
     return; 
@@ -186,27 +231,32 @@ void stepMotorWithCompensation(int steps, bool direction) {
   // Start in commanded direction
   digitalWrite(DIR_PIN, direction ? HIGH : LOW);
 
-  Serial.println("Starting scaled absolute position: " + String(prevPos));
+  Serial.println("Starting scaled absolute position: " + String(prev_pos));
+
+  uint32_t start_time = micros();
 
   uint16_t chunk_index = 0;
   while (abs(commanded_net) < steps) {
     // 1) Issue next open-loop chunk
     int remaining = steps - abs(commanded_net);
     int chunk = remaining < CHUNK_SIZE ? remaining : CHUNK_SIZE;
-    for (int i = 0; i < chunk; i++)
+    for (int i = 0; i < chunk; i++) {
+      stepAcc(chunk, i);
       stepPulse();
+    }
+      
     commanded_net += direction ? chunk : -chunk;  
 
     // 2) Read encoder and accumulate measured delta
     delay(2);   // small settle
-    uint16_t newPos = calculateScaledAbsPos();
-    if (newPos == 0xFFFF) {
+    uint16_t new_pos = calculateScaledAbsPos();
+    if (new_pos == 0xFFFF) {
       Serial.println("Error reading new position. Skipping correction.");
       continue;
     }
-    int16_t d = deltaMicrosteps(prevPos, newPos);
+    int16_t d = deltaMicrosteps(prev_pos, new_pos);
     measured_net += d;
-    prevPos = newPos;
+    prev_pos = new_pos;
 
     // 3) Compute error and apply a small correction burst if needed
     int32_t error = commanded_net - measured_net;
@@ -216,20 +266,22 @@ void stepMotorWithCompensation(int steps, bool direction) {
     Serial.println(abs(error) > TOLERANCE ? " Above Tolerance" : " Within Tolerance");
 
     if (abs(error) > TOLERANCE) {
-      bool corrDir = (error > 0);   // Correction direction 
-      digitalWrite(DIR_PIN, corrDir ? HIGH : LOW);
+      bool corr_dir = (error > 0);   // Correction direction 
+      digitalWrite(DIR_PIN, corr_dir ? HIGH : LOW);
 
       int16_t burst = abs(error) > MAX_CORR ? MAX_CORR : (int16_t)abs(error);
-      for (int i = 0; i < burst; i++) 
+      for (int i = 0; i < burst; i++) {
+        stepAcc(steps, i);
         stepPulse();
+      }
 
       delay(2);   // small settle
       // Read position after correction and adjust 
-      uint16_t pos2 = calculateScaledAbsPos();
-      if (pos2 != 0xFFFF) {
-        int16_t d2 = deltaMicrosteps(prevPos, pos2);
-        measured_net += d2;
-        prevPos = pos2;
+      uint16_t pos_2 = calculateScaledAbsPos();
+      if (pos_2 != 0xFFFF) {
+        int16_t d_2 = deltaMicrosteps(prev_pos, pos_2);
+        measured_net += d_2;
+        prev_pos = pos_2;
       }
 
       // Restore commanded direction
@@ -238,32 +290,34 @@ void stepMotorWithCompensation(int steps, bool direction) {
   }
 
   // Final tighten within tolerance
-  int32_t finalError = (direction ? steps : -steps) - measured_net;
+  int32_t final_error = (direction ? steps : -steps) - measured_net;
 
-  Serial.print("Final error: " + String(finalError));
-  Serial.println(abs(finalError) > TOLERANCE ? " Above Tolerance" : " Within Tolerance");
+  Serial.print("Final error: " + String(final_error));
+  Serial.println(abs(final_error) > TOLERANCE ? " Above Tolerance" : " Within Tolerance");
 
   int iter = 0;
-  while (abs(finalError) > TOLERANCE && iter++ < MAX_FINAL_ITERS) {
-    bool corrDir = (finalError > 0);    // Correction direction
-    digitalWrite(DIR_PIN, corrDir ? HIGH : LOW);
+  while (abs(final_error) > TOLERANCE && iter++ < MAX_FINAL_ITERS) {
+    bool corr_dir = (final_error > 0);    // Correction direction
+    digitalWrite(DIR_PIN, corr_dir ? HIGH : LOW);
 
-    int16_t burst = abs(finalError) > MAX_CORR ? MAX_CORR : (int16_t)abs(finalError);
-    for (int i = 0; i < burst; i++) 
+    int16_t burst = abs(final_error) > MAX_CORR ? MAX_CORR : (int16_t)abs(final_error);
+    for (int i = 0; i < burst; i++) {
+      stepAcc(burst, i);
       stepPulse();
+    }
 
     delay(2);   // small settle
-    uint16_t pos3 = calculateScaledAbsPos();
-    if (pos3 == 0xFFFF) {
+    uint16_t pos_3 = calculateScaledAbsPos();
+    if (pos_3 == 0xFFFF) {
       Serial.println("Error reading new position (pos3). Skipping correction.");
       break;
     }
 
-    int16_t d3 = deltaMicrosteps(prevPos, pos3);
-    measured_net += d3;
-    prevPos = pos3;
+    int16_t d_3 = deltaMicrosteps(prev_pos, pos_3);
+    measured_net += d_3;
+    prev_pos = pos_3;
 
-    finalError = (direction ? steps : -steps) - measured_net;
+    final_error = (direction ? steps : -steps) - measured_net;
   }
 
   Serial.print("Final scaled absolute position: ");
@@ -274,6 +328,11 @@ void stepMotorWithCompensation(int steps, bool direction) {
   Serial.print(abs(measured_net));
   Serial.print(" | Error: ");
   Serial.println((direction ? steps : -steps) - measured_net);
+
+  uint32_t end_time = micros();
+  float RPM = calcRPM(start_time, end_time, steps);
+  Serial.print("RPM: ");
+  Serial.println(RPM, 2); 
 }
 
 inline void printRMSCurrent() {
@@ -285,10 +344,10 @@ inline void printRMSCurrent() {
 
 void loop() {
   printRMSCurrent();
-  stepMotorWithCompensation(STEPS_PER_REV, true);
+  stepMotorWithCompensation(4 * STEPS_PER_REV, true);
   delay(500);
 
   printRMSCurrent();
-  stepMotorWithCompensation(STEPS_PER_REV, false);
+  stepMotor(4 * STEPS_PER_REV, false);
   delay(500);
 }
