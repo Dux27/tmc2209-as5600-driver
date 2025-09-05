@@ -11,14 +11,14 @@
 #define DRIVER_ADDRESS 0b00               // UART address
 #define SERIAL_PORT Serial1               // Teensy UART port
 
-#define STEP_PIN 2                        // STEP pin
-#define DIR_PIN 3                         // DIR pin
+#define STEP_PIN 2                        
+#define DIR_PIN 3                         
 
 #define MOTOR_CURRENT 1000                // RMS current in mA
-#define MICROSTEPS 16                     // Fixed microsteps for your board
+#define MICROSTEPS 16                     
 #define STEPS_PER_REV (200 * MICROSTEPS)  // Full rotation steps
 uint16_t STEP_DELAY = 140;                // microseconds (us) per step pulse.
-bool ACCELERATE = true;                  // Whether to use acceleration profile 
+bool ACCELERATE = true;                   // Whether to use acceleration profile 
 
 // AS5600 parameters
 #define AS5600_ADDRESS 0x36               // Fixed I2C AS5600 address
@@ -102,9 +102,9 @@ void stepAcc(uint32_t commanded_steps, uint32_t step_index) {
   
   if (!ACCELERATE) return;
   // microseconds (us)
-  const uint16_t MAX_STEP_DELAY = 160;      // 6.25 kHz
-  const uint16_t MIN_STEP_DELAY = 80;       // 12.5 kHZ
-  uint16_t acc_ramp = MICROSTEPS * 40;      // Steps in the ramp
+  const uint16_t MAX_STEP_DELAY = 250;      // 4kHz (250) <-> 6.25 kHz (160)
+  const uint16_t MIN_STEP_DELAY = 40;       // 12.5 kHZ
+  uint16_t acc_ramp = MICROSTEPS * 80;      // Steps in the ramp
 
   uint32_t mid_point = commanded_steps / 2u;
   if (acc_ramp > mid_point) acc_ramp = mid_point;
