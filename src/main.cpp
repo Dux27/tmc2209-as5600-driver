@@ -97,27 +97,38 @@ int16_t deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) {
 }
 
 void stepAcc(uint32_t commanded_steps, uint32_t step_index) {
+  // This function do trapzoidal acceleration profile
+  // It modifies the global STEP_DELAY variable based on the commanded steps and current step index
+  
   if (!ACCELERATE) return;
+  // microseconds (us)
+  const uint16_t MAX_STEP_DELAY = 160;      // 6.25 kHz
+  const uint16_t MIN_STEP_DELAY = 80;       // 12.5 kHZ
+  uint16_t acc_ramp = MICROSTEPS * 50;      // Steps in the ramp
 
-  const uint16_t ACC_THRESHOLD = 10 * MICROSTEPS;   // Seems legit
-  const uint16_t MAX_STEP_DELAY = 160;   //  microseconds (us). 4 kHz
-  const uint16_t MIN_STEP_DELAY = 80;    //  12.5 kHZ
+  uint32_t mid_point = commanded_steps / 2u;
+  if (acc_ramp > mid_point) acc_ramp = mid_point;
 
-  if (commanded_steps < ACC_THRESHOLD)
-    STEP_DELAY = MAX_STEP_DELAY;
-  else {
-    uint32_t mid_point = commanded_steps / 2;
-    if (step_index < mid_point) {
-      // Accelerate
-      STEP_DELAY = MAX_STEP_DELAY - ((MAX_STEP_DELAY - MIN_STEP_DELAY) * step_index) / mid_point;
-    } else {
-      // Decelerate
-      STEP_DELAY = MIN_STEP_DELAY + ((MAX_STEP_DELAY - MIN_STEP_DELAY) * (step_index - mid_point)) / (commanded_steps - mid_point);
-    }
-    // Don't exceed limits
-    if (STEP_DELAY < MIN_STEP_DELAY) STEP_DELAY = MIN_STEP_DELAY;
-    if (STEP_DELAY > MAX_STEP_DELAY) STEP_DELAY = MAX_STEP_DELAY;
+  // Guard for very short moves
+  if (commanded_steps == 0u || acc_ramp == 0u) {
+    STEP_DELAY = MIN_STEP_DELAY;
+    return;
   }
+
+  if (step_index < acc_ramp) {
+    // Accelerate 
+    STEP_DELAY = MAX_STEP_DELAY - ((MAX_STEP_DELAY - MIN_STEP_DELAY) * (step_index + 1u)) / acc_ramp;
+  } else if (step_index >= commanded_steps - acc_ramp) {
+    // Decelerate 
+    uint32_t decelerate_step_index = (commanded_steps - 1u) - step_index; // 0..acc_ramp-1 from end
+    STEP_DELAY = MIN_STEP_DELAY + ((MAX_STEP_DELAY - MIN_STEP_DELAY) * ((acc_ramp - 1u) - decelerate_step_index)) / acc_ramp;
+  } else {
+    STEP_DELAY = MIN_STEP_DELAY;
+  }
+
+  // Don't exceed limits for secure purposes
+  if (STEP_DELAY < MIN_STEP_DELAY) STEP_DELAY = MIN_STEP_DELAY;
+  if (STEP_DELAY > MAX_STEP_DELAY) STEP_DELAY = MAX_STEP_DELAY;
 }
 
 float calcRPM(uint32_t start_time, uint32_t end_time, uint32_t commanded_steps) {
