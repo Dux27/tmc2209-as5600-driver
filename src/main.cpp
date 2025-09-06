@@ -17,7 +17,8 @@
 #define MOTOR_CURRENT 1000                // RMS current in mA
 #define MICROSTEPS 16                     
 #define STEPS_PER_REV (200 * MICROSTEPS)  // Full rotation steps
-uint16_t STEP_DELAY = 140;                // microseconds (us) per step pulse.
+#define GEAR_RATIO (319.0f / 9.0f)        // Gearbox ratio 35.4444444:1 
+uint16_t STEP_DELAY = 85;                 // microseconds (us) per step pulse.
 bool ACCELERATE = true;                   // Whether to use acceleration profile 
 
 // AS5600 parameters
@@ -232,7 +233,7 @@ void stepMotorWithCompensation(int steps, bool direction) {
   // Closed-loop parameters
   const int      CHUNK_SIZE = 1500;   // Max chunk size is STEPS_PER_REV/2 - 1 but because of quantization/jitter we use a smaller safe chunk <1580
   const int16_t  TOLERANCE = 0;       // microsteps tolerance
-  const int16_t  MAX_CORR = 32;       // max correction microsteps per burst
+  const int16_t  MAX_CORR = 128;       // max correction microsteps per burst
   const int      MAX_FINAL_ITERS = 8;  
 
   // The "net" values represent the cumulative microsteps commanded and measured during motion.
@@ -355,10 +356,10 @@ inline void printRMSCurrent() {
 
 void loop() {
   printRMSCurrent();
-  stepMotorWithCompensation(4 * STEPS_PER_REV, true);
+  stepMotor(GEAR_RATIO * STEPS_PER_REV, true);
   delay(500);
 
   printRMSCurrent();
-  stepMotor(4 * STEPS_PER_REV, false);
+  stepMotor(GEAR_RATIO * STEPS_PER_REV, false);
   delay(500);
 }
