@@ -4,7 +4,8 @@
 #include <Arduino.h>
 #include "config.h"
 
-class AS5600 {
+class AS5600 
+{
 public:
     explicit AS5600(uint8_t i2c_addr = 0x36, const char* name = "xyz_sensor");
 

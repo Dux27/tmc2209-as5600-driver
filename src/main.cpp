@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include "config.h"
 #include "as5600.h"
 #include "stepperMotor.h"
@@ -29,6 +28,7 @@ void loop()
   uint32_t now = millis();
   if (now - last >= 2000)
   {
+    stepper1.refreshConfigIfNeeded();
     stepper1.printTelemetry();
 
     Serial.print(F("[AS5600] "));

@@ -8,16 +8,19 @@ namespace {
 AS5600::AS5600(uint8_t i2c_addr, const char* name)
     : name(name), address_(i2c_addr) {}
 
-bool AS5600::init() {
+bool AS5600::init() 
+{
     // Detecting device 
     Wire.beginTransmission(address_);
-    if (Wire.endTransmission() == 0) {
+    if (Wire.endTransmission() == 0) 
+    {
         Serial.print(F("[AS5600] "));
         Serial.print(name);
         Serial.println(F(" detected."));
         found_ = true;
     }
-    else {
+    else 
+    {
         Serial.print(F("[AS5600] "));
         Serial.print(F("Error 001! "));
         Serial.print(name);
@@ -28,7 +31,8 @@ bool AS5600::init() {
     return found_;
 }
 
-uint16_t AS5600::readAbsPosition() const {
+uint16_t AS5600::readAbsPosition() const 
+{
     // 1. Tell the AS5600 we want to read starting at register ANGLE_REG_HIGH
     Wire.beginTransmission(address_);
     Wire.write(ANGLE_REG_HIGH);                 // Register pointer = high byte of angle
@@ -46,9 +50,11 @@ uint16_t AS5600::readAbsPosition() const {
     return 0xFFFF;
 }
 
-uint16_t AS5600::calcMappedAbsPosition() const {
+uint16_t AS5600::calcMappedAbsPosition() const 
+{
     uint16_t raw_abs_pos = readAbsPosition();
-    if (raw_abs_pos != 0xFFFF) {
+    if (raw_abs_pos != 0xFFFF) 
+    {
         // AS5600 gives 16 bits but only 12 bits are important
         uint16_t raw_abs_pos_12b = raw_abs_pos & 0x0FFF;    // ANDing with 0x0FFF keeps the lower 12 bits and sets the upper 4 bits to 0.
         uint16_t mapped_abs_pos = (static_cast<uint32_t>(raw_abs_pos_12b) * cfg::STEPS_PER_REV + (4096u / 2u)) / 4096u; // Mapping with rounding to nearest trick

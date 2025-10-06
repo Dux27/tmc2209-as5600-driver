@@ -19,7 +19,9 @@ public:
     AccelStepper stepper;
 
     void init();            
-    void applyConfig();     
+    void applyConfig();
+    bool settingsMismatch();
+    void refreshConfigIfNeeded();
     void printTelemetry();
 
 private:

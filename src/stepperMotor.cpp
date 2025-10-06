@@ -6,11 +6,6 @@ namespace {
     {
         return (uint8_t)lroundf((raw0_31 / 31.0f) * 100.0f);
     }
-
-    static float rpmFromRate(int32_t rate)
-    {
-        return (rate / float(cfg::STEPS_PER_REV)) * 60.0f;
-    }
 }
 
 StepperMotor::StepperMotor(
@@ -47,20 +42,13 @@ void StepperMotor::init()
     driver_.moveUsingStepDirInterface();                // external STEP/DIR mode
 
     applyConfig();
-
-    uint16_t ms = driver_.getMicrostepsPerStep();
-    if (ms != cfg::MICROSTEPS)
-    {
-        Serial.print(F("[TMC2209] Error 001! Microstep readback mismatch. Got "));
-        Serial.println(ms);
-    }
 }
 
 void StepperMotor::applyConfig()
 {
     found_ = driver_.isSetupAndCommunicating();
     Serial.print(F("[TMC2209] "));
-    Serial.print(found_ ? F("") : F("Error 002! "));
+    Serial.print(found_ ? F("") : F("Error 001! "));
     Serial.print(name_);
     Serial.println(found_ ? F(" detected.") : F(" NOT found."));
 
@@ -71,23 +59,83 @@ void StepperMotor::applyConfig()
     driver_.setHoldCurrent(cfg::HOLD_CURRENT_PCT); // %
     driver_.disableStealthChop();                  // spreadCycle for torque at speed
     driver_.enable();
+
     delay(3);
+}
+
+bool StepperMotor::settingsMismatch()
+{
+    // Compare current driver settings vs desired ones (with tolerance for percent rounding)
+    const uint8_t tolerance = 3;
+
+    uint16_t ms = driver_.getMicrostepsPerStep();
+    if (ms != cfg::MICROSTEPS)
+        return true;
+
+    TMC2209::Settings s = driver_.getSettings();
+    uint8_t irun_pct = rawToPercent(s.irun_register_value);
+    uint8_t ihold_pct = rawToPercent(s.ihold_register_value);
+
+    auto diff = [](int a, int b)
+    { return abs(a - b); };
+    if (diff(irun_pct, cfg::RUN_CURRENT_PCT) > tolerance)
+        return true;
+    if (diff(ihold_pct, cfg::HOLD_CURRENT_PCT) > tolerance)
+        return true;
+
+    return false;
+}
+
+void StepperMotor::refreshConfigIfNeeded()
+{
+    // Call this only when stopped (currentRate==0 and targetRate==0)
+    if (!driver_.isSetupAndCommunicating())
+    {
+        Serial.println(F("[TMC2209] Error 002! Communication lost or driver reset. Reinitializing..."));
+        driver_.setup(uart_, cfg::BAUD_RATE, serial_addr_);
+        driver_.setReplyDelay(2);
+        applyConfig();
+
+        return;
+    }
+
+    // Snapshot BEFORE (for printout), then decide
+    uint16_t ms_before = driver_.getMicrostepsPerStep();
+    TMC2209::Settings s_before = driver_.getSettings();
+
+    if (settingsMismatch())
+    {
+        Serial.println(F("[TMC2209] Error 003! Detected default/changed settings. Re-applying..."));
+        Serial.print(F("Before -> microsteps="));
+        Serial.print(ms_before);
+        Serial.print(F(", IRUN%~"));
+        Serial.print(rawToPercent(s_before.irun_register_value));
+        Serial.print(F(", IHOLD%~"));
+        Serial.println(rawToPercent(s_before.ihold_register_value));
+
+        applyConfig();
+
+        // Read AFTER and print
+        uint16_t ms_after = driver_.getMicrostepsPerStep();
+        TMC2209::Settings s_after = driver_.getSettings();
+        Serial.print(F("After  -> microsteps="));
+        Serial.print(ms_after);
+        Serial.print(F(", IRUN%~"));
+        Serial.print(rawToPercent(s_after.irun_register_value));
+        Serial.print(F(", IHOLD%~"));
+        Serial.println(rawToPercent(s_after.ihold_register_value));
+        Serial.println();
+    }
 }
 
 void StepperMotor::printTelemetry()
 {
-    if (!driver_.isSetupAndCommunicating())
-    {
-        Serial.println(F("[TMC2209] Error 003! No UART communication"));
-        return;
-    }
-
-    uint16_t microsteps = driver_.getMicrostepsPerStep(); // 1..256
+    uint16_t microsteps = driver_.getMicrostepsPerStep(); 
     uint32_t tstep = driver_.getInterstepDuration();      // smaller = faster
     uint16_t sg = driver_.getStallGuardResult();
     uint8_t itc = driver_.getInterfaceTransmissionCounter();
 
-    TMC2209::Settings s = driver_.getSettings(); // IRUN/IHOLD raw 0..31
+    TMC2209::Settings s = driver_.getSettings(); 
     TMC2209::Status st = driver_.getStatus();
 
     Serial.print(F("Microsteps/step: "));
