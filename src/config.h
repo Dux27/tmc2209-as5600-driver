@@ -3,7 +3,7 @@
 #include <atomic>
 
 namespace cfg {
-    constexpr uint8_t  MICROSTEPS = 32;
+    constexpr uint8_t  MICROSTEPS = 8;
     constexpr uint8_t FULL_STEPS_PER_REV = 200;
     constexpr uint16_t STEPS_PER_REV = FULL_STEPS_PER_REV * MICROSTEPS;
     constexpr uint32_t BAUD_RATE = 115200;

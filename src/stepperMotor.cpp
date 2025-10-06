@@ -38,7 +38,7 @@ void StepperMotor::init()
     stepper.setCurrentPosition(0);
 
     driver_.setup(uart_, cfg::BAUD_RATE, serial_addr_);
-    driver_.setReplyDelay(2);                           // bump to 3–5 if wires are long/noisy
+    driver_.setReplyDelay(5);                           // bump to 3–5 if wires are long/noisy
     driver_.moveUsingStepDirInterface();                // external STEP/DIR mode
 
     applyConfig();
@@ -88,7 +88,6 @@ bool StepperMotor::settingsMismatch()
 
 void StepperMotor::refreshConfigIfNeeded()
 {
-    // Call this only when stopped (currentRate==0 and targetRate==0)
     if (!driver_.isSetupAndCommunicating())
     {
         Serial.println(F("[TMC2209] Error 002! Communication lost or driver reset. Reinitializing..."));
@@ -130,11 +129,14 @@ void StepperMotor::refreshConfigIfNeeded()
 
 void StepperMotor::printTelemetry()
 {
-    uint16_t microsteps = driver_.getMicrostepsPerStep(); 
-    uint32_t tstep = driver_.getInterstepDuration();      // smaller = faster
-    uint16_t sg = driver_.getStallGuardResult();
-    uint8_t itc = driver_.getInterfaceTransmissionCounter();
+    // Checking isSetupAndCommunicating() is reseting the tstep
+    if (!driver_.isSetupAndCommunicating())
+    {
+        Serial.println(F("[TMC2209] Error 004! No UART communication."));
+        return;
+    }
 
+    uint16_t microsteps = driver_.getMicrostepsPerStep(); 
     TMC2209::Settings s = driver_.getSettings(); 
     TMC2209::Status st = driver_.getStatus();
 
@@ -153,22 +155,8 @@ void StepperMotor::printTelemetry()
     Serial.print(rawToPercent(s.ihold_register_value));
     Serial.println(F("%)"));
 
-    Serial.print(F("tSTEP: "));
-    Serial.println(tstep);
-    Serial.print(F("SG_RESULT: "));
-    Serial.println(sg);
-    Serial.print(F("TX counter: "));
-    Serial.println(itc);
-
-    Serial.print(F("Status: standstill="));
-    Serial.print(st.standstill);
-    Serial.print(F(" stealthChopMode="));
+    Serial.print(F("Status: stealthChopMode="));
     Serial.print(st.stealth_chop_mode);
     Serial.print(F(" overTempWarn="));
-    Serial.print(st.over_temperature_warning);
-    Serial.print(F(" shortA="));
-    Serial.print(st.short_to_ground_a);
-    Serial.print(F(" shortB="));
-    Serial.println(st.short_to_ground_b);
-    Serial.println();
+    Serial.println(st.over_temperature_warning);
 }

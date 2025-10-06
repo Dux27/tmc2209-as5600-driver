@@ -62,3 +62,16 @@ uint16_t AS5600::calcMappedAbsPosition() const
     }
     return 0xFFFF;
 }
+
+int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps)
+{
+    int16_t delta = end_steps - start_steps;
+
+    // Handle wrap-around
+    if (delta > cfg::STEPS_PER_REV / 2)
+        delta -= cfg::STEPS_PER_REV;
+    if (delta < -cfg::STEPS_PER_REV / 2)
+        delta += cfg::STEPS_PER_REV;
+
+    return delta;
+}

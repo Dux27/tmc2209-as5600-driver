@@ -14,6 +14,7 @@ public:
     bool init();
     uint16_t readAbsPosition() const;
     uint16_t calcMappedAbsPosition() const;
+    int16_t deltaMicrosteps(uint16_t start_steps, uint16_t end_steps);
     bool isFound() const { return found_; }
 
 private:
