@@ -6,6 +6,11 @@ namespace {
     {
         return (uint8_t)lroundf((raw0_31 / 31.0f) * 100.0f);
     }
+
+    int diff(int a, int b) 
+    { 
+        return abs(a - b); 
+    }
 }
 
 StepperMotor::StepperMotor(
@@ -50,7 +55,7 @@ void StepperMotor::applyConfig()
     Serial.print(F("[TMC2209] "));
     Serial.print(found_ ? F("") : F("Error 001! "));
     Serial.print(name_);
-    Serial.println(found_ ? F(" detected.") : F(" NOT found."));
+    Serial.println(found_ ? F(" - detected.") : F(" - NOT found."));
 
     driver_.moveAtVelocity(0);                     // keep internal generator idle
 
@@ -76,8 +81,21 @@ bool StepperMotor::settingsMismatch()
     uint8_t irun_pct = rawToPercent(s.irun_register_value);
     uint8_t ihold_pct = rawToPercent(s.ihold_register_value);
 
-    auto diff = [](int a, int b)
-    { return abs(a - b); };
+    // Serial.println(F("[TMC2209] Checking settings..."));
+    // Serial.print(F("Current -> microsteps="));
+    // Serial.print(ms);
+    // Serial.print(F(", IRUN%~"));
+    // Serial.print(irun_pct);
+    // Serial.print(F(", IHOLD%~"));
+    // Serial.println(ihold_pct);
+    // Serial.print(F("Desired -> microsteps="));
+    // Serial.print(cfg::MICROSTEPS);
+    // Serial.print(F(", IRUN%~"));
+    // Serial.print(cfg::RUN_CURRENT_PCT);
+    // Serial.print(F(", IHOLD%~"));
+    // Serial.println(cfg::HOLD_CURRENT_PCT);
+    // Serial.println();
+
     if (diff(irun_pct, cfg::RUN_CURRENT_PCT) > tolerance)
         return true;
     if (diff(ihold_pct, cfg::HOLD_CURRENT_PCT) > tolerance)
@@ -92,7 +110,7 @@ void StepperMotor::refreshConfigIfNeeded()
     {
         Serial.println(F("[TMC2209] Error 002! Communication lost or driver reset. Reinitializing..."));
         driver_.setup(uart_, cfg::BAUD_RATE, serial_addr_);
-        driver_.setReplyDelay(2);
+        driver_.setReplyDelay(5);
         applyConfig();
 
         return;
@@ -129,16 +147,20 @@ void StepperMotor::refreshConfigIfNeeded()
 
 void StepperMotor::printTelemetry()
 {
-    // Checking isSetupAndCommunicating() is reseting the tstep
-    if (!driver_.isSetupAndCommunicating())
-    {
-        Serial.println(F("[TMC2209] Error 004! No UART communication."));
-        return;
-    }
+    // For some reason getting [.isSetupAndCommunicating(), tstep, sg or itc] stoping [irun, ihold and standstill]
+    // Probably a bug in the TMC2209 library or bus is busy/blocked
 
-    uint16_t microsteps = driver_.getMicrostepsPerStep(); 
+    uint16_t microsteps = driver_.getMicrostepsPerStep();
+    // uint32_t tstep = driver_.getInterstepDuration();        // smaller = faster
+    // uint16_t sg = driver_.getStallGuardResult();
+    // uint8_t itc = driver_.getInterfaceTransmissionCounter();
+
     TMC2209::Settings s = driver_.getSettings(); 
     TMC2209::Status st = driver_.getStatus();
+    Serial.print(F("[TMC2209] "));
+    Serial.print(name_);
+    Serial.print(F(" - found: "));
+    Serial.println(found_ ? F("yes") : F("no"));
 
     Serial.print(F("Microsteps/step: "));
     Serial.println(microsteps);
@@ -155,7 +177,16 @@ void StepperMotor::printTelemetry()
     Serial.print(rawToPercent(s.ihold_register_value));
     Serial.println(F("%)"));
 
-    Serial.print(F("Status: stealthChopMode="));
+    // Serial.print(F("tSTEP: "));
+    // Serial.println(tstep);
+    // Serial.print(F("SG_RESULT: "));
+    // Serial.println(sg);
+    // Serial.print(F("TX counter: "));
+    // Serial.println(itc);
+
+    Serial.print(F("Status: standstill="));
+    Serial.print(st.standstill);
+    Serial.print(F(" stealthChopMode="));
     Serial.print(st.stealth_chop_mode);
     Serial.print(F(" overTempWarn="));
     Serial.println(st.over_temperature_warning);

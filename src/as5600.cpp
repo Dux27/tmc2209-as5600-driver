@@ -5,8 +5,8 @@ namespace {
     constexpr uint8_t ANGLE_REG_LOW = 0x0D;  // Register addresses for angle low byte
 }
 
-AS5600::AS5600(uint8_t i2c_addr, const char* name)
-    : name(name), address_(i2c_addr) {}
+AS5600::AS5600(uint8_t i2c_addr, const char *name)
+    : name_(name), address_(i2c_addr) {}
 
 bool AS5600::init() 
 {
@@ -15,16 +15,16 @@ bool AS5600::init()
     if (Wire.endTransmission() == 0) 
     {
         Serial.print(F("[AS5600] "));
-        Serial.print(name);
-        Serial.println(F(" detected."));
+        Serial.print(name_);
+        Serial.println(F(" - detected."));
         found_ = true;
     }
     else 
     {
         Serial.print(F("[AS5600] "));
         Serial.print(F("Error 001! "));
-        Serial.print(name);
-        Serial.println(F(" NOT found."));
+        Serial.print(name_);
+        Serial.println(F(" - NOT found."));
         found_ = false;
     }
 
@@ -63,7 +63,7 @@ uint16_t AS5600::calcMappedAbsPosition() const
     return 0xFFFF;
 }
 
-int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps)
+int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) const
 {
     int16_t delta = end_steps - start_steps;
 
@@ -74,4 +74,29 @@ int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps)
         delta += cfg::STEPS_PER_REV;
 
     return delta;
+}
+
+void AS5600::printTelemetry() const
+{
+    uint16_t raw_abs_pos = readAbsPosition();
+    if (raw_abs_pos != 0xFFFF) 
+    {
+        Serial.print(F("[AS5600] "));
+        Serial.print(name_);
+        Serial.print(F(" - raw absolute position: "));
+        Serial.println(raw_abs_pos);
+
+        uint16_t mapped_abs_pos = calcMappedAbsPosition();
+        Serial.print(F("[AS5600] "));
+        Serial.print(name_);
+        Serial.print(F(" - scaled absolute position: "));
+        Serial.println(mapped_abs_pos);
+    } 
+    else 
+    {
+        Serial.print(F("[AS5600] "));
+        Serial.print(F("Error 002! "));
+        Serial.print(name_);
+        Serial.println(F(" - reading position!"));
+    }
 }

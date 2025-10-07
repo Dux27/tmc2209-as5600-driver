@@ -2,6 +2,7 @@
 #include "as5600.h"
 #include "stepperMotor.h"
 #include <TeensyThreads.h>
+
 AS5600 sensor1(0x36, "sensor1");
 StepperMotor stepper1(6, 5, 0xFF, "stepper1");
 
@@ -10,17 +11,13 @@ void telemetryTask()
   while (true) // Run continuously in a separate thread
   {
     stepper1.refreshConfigIfNeeded();
-    stepper1.printTelemetry();
 
-    Serial.print(F("[AS5600] "));
-    Serial.print(sensor1.name);
-    Serial.print(F(" - raw absolute position: "));
-    Serial.println(sensor1.readAbsPosition());
-    Serial.print(F("[AS5600] "));
-    Serial.print(sensor1.name);
-    Serial.print(F(" - scaled absolute position: "));
-    Serial.println(sensor1.calcMappedAbsPosition());
     Serial.println();
+    Serial.println(F("------Telemetry------"));
+    sensor1.printTelemetry();
+    Serial.println();
+    stepper1.printTelemetry();
+    Serial.println(F("---------------------"));
 
     threads.delay(1000); // ms
   }
