@@ -13,10 +13,12 @@ public:
         const uint8_t dir_pin,
         const uint8_t en_pin = 0xFF,    // 0xFF => EN tied LOW 
         const char *name = "xyz_stepper_motor",
+        const float gear_ratio = 1.0f,
         HardwareSerial &uart = Serial1,
         TMC2209::SerialAddress serial_addr = TMC2209::SERIAL_ADDRESS_0);
 
     AccelStepper stepper;
+    const float gear_ratio;
 
     void init();            
     void applyConfig();

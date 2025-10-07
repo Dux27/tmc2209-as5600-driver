@@ -92,7 +92,7 @@ float AS5600::measureRPM(int16_t delta_microsteps, uint32_t delta_time_ms) const
     return RPM > 0 ? RPM : 0;                
 }
 
-void AS5600::printTelemetry() const
+void AS5600::printTelemetry(float gear_ratio) const
 {
     uint16_t raw_abs_pos = readAbsPosition();
     uint16_t mapped_abs_pos_before = calcMappedAbsPosition();
@@ -130,6 +130,13 @@ void AS5600::printTelemetry() const
     Serial.print(F("Measured RPM"));
     Serial.print(F(" (delta_time = "));
     Serial.print(delta_time);
-    Serial.print(F(" ms): ~"));
-    Serial.println(RPM);
+    Serial.println(F(" ms):"));
+    Serial.print(F("Without gear reduction: "));
+    Serial.print(RPM);
+    Serial.println(F(" RPM"));
+    Serial.print(F("With gear ratio = "));
+    Serial.print(gear_ratio);
+    Serial.print(F(": "));
+    Serial.print(RPM / gear_ratio);
+    Serial.println(F(" RPM"));
 }

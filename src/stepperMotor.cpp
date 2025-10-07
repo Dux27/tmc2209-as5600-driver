@@ -18,9 +18,11 @@ StepperMotor::StepperMotor(
     const uint8_t dir_pin,
     const uint8_t en_pin,
     const char *name,
+    const float gear_ratio,
     HardwareSerial &uart,
     TMC2209::SerialAddress serial_addr)
     : stepper(AccelStepper::DRIVER, step_pin, dir_pin),
+      gear_ratio(gear_ratio),
       driver_(),
       uart_(uart),
       serial_addr_(serial_addr),
