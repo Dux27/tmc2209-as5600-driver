@@ -3,6 +3,11 @@
 namespace {
     constexpr uint8_t ANGLE_REG_HIGH = 0x0C; // Register addresses for angle high byte
     constexpr uint8_t ANGLE_REG_LOW = 0x0D;  // Register addresses for angle low byte
+
+    auto diff(int a, int b)
+    {
+        return abs(a - b);
+    }
 }
 
 AS5600::AS5600(uint8_t i2c_addr, const char *name)
@@ -76,27 +81,55 @@ int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) const
     return delta;
 }
 
+float AS5600::measureRPM(int16_t delta_microsteps, uint32_t delta_time_ms) const
+{
+    if (delta_time_ms == 0)
+        return 0.0f; // Prevent division by zero
+
+    float revolutions = static_cast<float>(delta_microsteps) / static_cast<float>(cfg::STEPS_PER_REV);
+    float minutes = static_cast<float>(delta_time_ms) / 60000.0f; // Convert ms to minutes
+    float RPM = revolutions / minutes;
+    return RPM > 0 ? RPM : 0;                
+}
+
 void AS5600::printTelemetry() const
 {
     uint16_t raw_abs_pos = readAbsPosition();
+    uint16_t mapped_abs_pos_before = calcMappedAbsPosition();
+    uint32_t time_before = millis();
+
     if (raw_abs_pos != 0xFFFF) 
     {
         Serial.print(F("[AS5600] "));
         Serial.print(name_);
-        Serial.print(F(" - raw absolute position: "));
+        Serial.print(F(" - found: "));
+        Serial.println(found_ ? F("yes") : F("no"));
+        Serial.print(F("Raw absolute position: "));
         Serial.println(raw_abs_pos);
 
-        uint16_t mapped_abs_pos = calcMappedAbsPosition();
-        Serial.print(F("[AS5600] "));
-        Serial.print(name_);
-        Serial.print(F(" - scaled absolute position: "));
-        Serial.println(mapped_abs_pos);
+        Serial.print(F("Scaled absolute position: "));
+        Serial.println(mapped_abs_pos_before);
     } 
     else 
     {
         Serial.print(F("[AS5600] "));
         Serial.print(F("Error 002! "));
         Serial.print(name_);
-        Serial.println(F(" - reading position!"));
+        Serial.println(F(" - Unable to read position."));
     }
+
+    // calculate RPM
+    delay(50);
+    uint32_t time_after = millis();
+    uint16_t mapped_abs_pos_after = calcMappedAbsPosition();
+
+    uint16_t delta_microsteps = deltaMicrosteps(mapped_abs_pos_before, mapped_abs_pos_after);
+    uint32_t delta_time = diff(time_before, time_after);
+    float RPM = measureRPM(delta_microsteps, delta_time);
+
+    Serial.print(F("Measured RPM"));
+    Serial.print(F(" (delta_time = "));
+    Serial.print(delta_time);
+    Serial.print(F(" ms): ~"));
+    Serial.println(RPM);
 }

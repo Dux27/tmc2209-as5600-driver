@@ -7,7 +7,7 @@ namespace {
         return (uint8_t)lroundf((raw0_31 / 31.0f) * 100.0f);
     }
 
-    int diff(int a, int b) 
+    auto diff(int a, int b) 
     { 
         return abs(a - b); 
     }
@@ -186,8 +186,8 @@ void StepperMotor::printTelemetry()
 
     Serial.print(F("Status: standstill="));
     Serial.print(st.standstill);
-    Serial.print(F(" stealthChopMode="));
+    Serial.print(F(", stealthChopMode="));
     Serial.print(st.stealth_chop_mode);
-    Serial.print(F(" overTempWarn="));
+    Serial.print(F(", overTempWarn="));
     Serial.println(st.over_temperature_warning);
 }

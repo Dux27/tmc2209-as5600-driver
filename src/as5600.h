@@ -9,12 +9,11 @@ class AS5600
 public:
     explicit AS5600(uint8_t i2c_addr = 0x36, const char* name = "xyz_sensor");
 
-    
-
     bool init();
     uint16_t readAbsPosition() const;
     uint16_t calcMappedAbsPosition() const;
     int16_t deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) const;
+    float measureRPM(int16_t delta_microsteps, uint32_t delta_time_ms) const;
     void printTelemetry() const;
     bool isFound() const { return found_; }
 
