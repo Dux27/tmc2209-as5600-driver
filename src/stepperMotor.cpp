@@ -64,7 +64,7 @@ void StepperMotor::applyConfig()
     driver_.setMicrostepsPerStep(cfg::MICROSTEPS);
     driver_.setRunCurrent(cfg::RUN_CURRENT_PCT);   // %
     driver_.setHoldCurrent(cfg::HOLD_CURRENT_PCT); // %
-    driver_.disableStealthChop();                  // spreadCycle for torque at speed
+    driver_.disableStealthChop();                   // spreadCycle for torque at speed
     driver_.enable();
 
     delay(3);

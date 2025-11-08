@@ -7,7 +7,7 @@
 class AS5600 
 {
 public:
-    explicit AS5600(uint8_t i2c_addr = 0x36, const char* name = "xyz_sensor");
+    explicit AS5600(uint8_t channel=0, const char *name="xyz_sensor");
 
     bool init();
     uint16_t readAbsPosition() const;
@@ -18,7 +18,9 @@ public:
     bool isFound() const { return found_; }
 
 private:
+    void selectChannelTCA9548A(uint8_t channel) const;
+
     const char *name_;
-    const uint8_t address_;
+    const uint8_t channel_;
     bool found_ = false;
 };

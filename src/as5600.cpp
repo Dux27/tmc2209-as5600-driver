@@ -10,13 +10,15 @@ namespace {
     }
 }
 
-AS5600::AS5600(uint8_t i2c_addr, const char *name)
-    : name_(name), address_(i2c_addr) {}
+AS5600::AS5600(uint8_t channel, const char *name)
+    : name_(name), channel_(channel) {}
 
 bool AS5600::init() 
 {
-    // Detecting device 
-    Wire.beginTransmission(address_);
+    // Detecting device
+    selectChannelTCA9548A(channel_);
+    Wire.beginTransmission(cfg::AS5600_ADDR);
+
     if (Wire.endTransmission() == 0) 
     {
         Serial.print(F("[AS5600] "));
@@ -36,14 +38,32 @@ bool AS5600::init()
     return found_;
 }
 
+void AS5600::selectChannelTCA9548A(uint8_t channel) const
+{
+    if (channel > 7) 
+    {
+        Serial.print(F("[AS5600] "));
+        Serial.print(F("Error 003! "));
+        Serial.print(name_);
+        Serial.println(F(" - Invalid TCA9548A channel selected."));
+        return;
+    }
+
+    Wire.beginTransmission(cfg::TCA9548A_ADDR);     // Talk to the multiplexer
+    Wire.write(1 << channel);                       // Choose one channel (0–7)
+    Wire.endTransmission();
+}
+
 uint16_t AS5600::readAbsPosition() const 
 {
+    // 0. Select the correct channel on the TCA9548A multiplexer
+    selectChannelTCA9548A(channel_);
     // 1. Tell the AS5600 we want to read starting at register ANGLE_REG_HIGH
-    Wire.beginTransmission(address_);
+    Wire.beginTransmission(cfg::AS5600_ADDR);
     Wire.write(ANGLE_REG_HIGH);                 // Register pointer = high byte of angle
     Wire.endTransmission(false);                // 'false' = send a RESTART, not a STOP
     // 2. Ask for 2 bytes - 16 bits of data from that register onwards
-    Wire.requestFrom(int(address_), 2);
+    Wire.requestFrom(int(cfg::AS5600_ADDR), 2);
     // 3. If we got exactly 2 bytes, combine them into a 16-bit value
     if (Wire.available() == 2)
     {
@@ -70,15 +90,20 @@ uint16_t AS5600::calcMappedAbsPosition() const
 
 int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) const
 {
-    int16_t delta = end_steps - start_steps;
+    int32_t delta = static_cast<int32_t>(end_steps) - static_cast<int32_t>(start_steps);
+    const int32_t half_rev = cfg::STEPS_PER_REV / 2;
 
     // Handle wrap-around
-    if (delta > cfg::STEPS_PER_REV / 2)
-        delta -= cfg::STEPS_PER_REV;
-    if (delta < -cfg::STEPS_PER_REV / 2)
+    // If delta is more than a half turn negative, it was a small positive turn
+    if (delta < -half_rev) {
         delta += cfg::STEPS_PER_REV;
+    }
+    // If delta is more than a half turn positive, it was a small negative turn
+    else if (delta > half_rev) {
+        delta -= cfg::STEPS_PER_REV;
+    }
 
-    return delta;
+    return static_cast<int16_t>(delta);
 }
 
 float AS5600::measureRPM(int16_t delta_microsteps, uint32_t delta_time_ms) const
