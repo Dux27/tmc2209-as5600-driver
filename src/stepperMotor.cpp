@@ -1,4 +1,5 @@
 #include "stepperMotor.h"
+#include <TeensyThreads.h>
 
 namespace {
     // Helpers
@@ -16,6 +17,7 @@ namespace {
 StepperMotor::StepperMotor(
     const uint8_t step_pin,
     const uint8_t dir_pin,
+    const uint8_t endstop_pin,
     const uint8_t en_pin,
     const char *name,
     const float gear_ratio,
@@ -29,6 +31,7 @@ StepperMotor::StepperMotor(
       name_(name),
       step_pin_(step_pin),
       dir_pin_(dir_pin),
+      endstop_pin_(endstop_pin),
       en_pin_(en_pin)
 {}
 
@@ -37,7 +40,12 @@ void StepperMotor::init()
     pinMode(step_pin_, OUTPUT);
     pinMode(dir_pin_, OUTPUT);
     if (en_pin_ != 0xFF)
-        pinMode(en_pin_, OUTPUT); // left unused here
+        pinMode(en_pin_, OUTPUT);
+
+    if (endstop_pin_ != 0xFF)
+    {
+        pinMode(endstop_pin_, INPUT_PULLUP);  
+    }
 
     stepper.setMinPulseWidth(3);
     stepper.setMaxSpeed(static_cast<float>(cfg::speed.load(std::memory_order_relaxed))); // steps/s
@@ -45,10 +53,11 @@ void StepperMotor::init()
     stepper.setCurrentPosition(0);
 
     driver_.setup(uart_, cfg::BAUD_RATE, serial_addr_);
-    driver_.setReplyDelay(5);                           // bump to 3–5 if wires are long/noisy
+    driver_.setReplyDelay(5);                           // adjust to 3–5 if wires are long/noisy
     driver_.moveUsingStepDirInterface();                // external STEP/DIR mode
 
     applyConfig();
+    startEndstopMonitor();
 }
 
 void StepperMotor::applyConfig()
@@ -59,12 +68,19 @@ void StepperMotor::applyConfig()
     Serial.print(name_);
     Serial.println(found_ ? F(" - detected.") : F(" - NOT found."));
 
-    driver_.moveAtVelocity(0);                     // keep internal generator idle
+    driver_.moveAtVelocity(0);                      // keep internal generator idle
 
     driver_.setMicrostepsPerStep(cfg::MICROSTEPS);
-    driver_.setRunCurrent(cfg::RUN_CURRENT_PCT);   // %
-    driver_.setHoldCurrent(cfg::HOLD_CURRENT_PCT); // %
-    driver_.disableStealthChop();                   // spreadCycle for torque at speed
+    driver_.setRunCurrent(cfg::RUN_CURRENT_PCT);    // %
+    driver_.setHoldCurrent(cfg::HOLD_CURRENT_PCT);  // %
+    if (cfg::STEALTHCHOP_ENABLED)
+    {
+        driver_.enableStealthChop();
+    }
+    else
+    {
+        driver_.disableStealthChop(); 
+    }
     driver_.enable();
 
     delay(3);
@@ -164,6 +180,9 @@ void StepperMotor::printTelemetry()
     Serial.print(F(" - found: "));
     Serial.println(found_ ? F("yes") : F("no"));
 
+    Serial.print("Endstop triggered: ");
+    Serial.println(endstop_triggered_);
+
     Serial.print(F("Microsteps/step: "));
     Serial.println(microsteps);
 
@@ -192,4 +211,45 @@ void StepperMotor::printTelemetry()
     Serial.print(st.stealth_chop_mode);
     Serial.print(F(", overTempWarn="));
     Serial.println(st.over_temperature_warning);
+}
+
+// TO STUDY
+void StepperMotor::startEndstopMonitor(uint32_t sample_period_ms)
+{
+    if (endstop_pin_ == 0xFF || endstop_thread_id_ >= 0)
+        return;
+
+    endstop_sample_period_ms_ = sample_period_ms ? sample_period_ms : 1;
+    endstop_thread_id_ = threads.addThread(endstopMonitorThunk_, this);
+}
+
+void StepperMotor::endstopMonitorThunk_(void *arg)
+{
+    auto *self = static_cast<StepperMotor *>(arg);
+    
+    constexpr uint8_t DEBOUNCE_COUNT = 5;  // Must read same value 5 times in a row
+    uint8_t stableCount = 0;
+    bool lastReading = false;
+    
+    while (true)
+    {
+        bool currentReading = (digitalRead(self->endstop_pin_) == LOW);     // Active LOW
+        
+        if (currentReading == lastReading)
+        {
+            stableCount++;
+            if (stableCount >= DEBOUNCE_COUNT)
+            {
+                self->endstop_triggered_ = currentReading;
+                stableCount = DEBOUNCE_COUNT;  // Prevent overflow
+            }
+        }
+        else
+        {
+            stableCount = 0;
+            lastReading = currentReading;
+        }
+
+        threads.delay(self->endstop_sample_period_ms_);
+    }
 }
