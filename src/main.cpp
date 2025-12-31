@@ -50,32 +50,14 @@ void setup()
   stepper1.init();
   stepper1.startEndstopMonitor();
 
-  delay(500);   // small delay to ensure driver is ready
-
-  threads.addThread(moveStepperToTask, cfg::GEAR_RATIO * cfg::STEPS_PER_REV);
-  // threads.addThread(telemetryTask);
+  delay(500);
+  //threads.addThread(telemetryTask);
+  
+  stepper1.home();
+  stepper1.stepper.moveTo(cfg::MICROSTEPS_PER_DEGREE * 90); 
 }
 
 void loop()
 {
-  bool currentEndstop = stepper1.endstopBool();
-  
-  // Detect rising edge (button just pressed, not held)
-  if (currentEndstop && !lastEndstopState)
-  {
-    motorRunning = !motorRunning;  // Toggle motor state
-    Serial.print(F("Motor toggled: "));
-    Serial.println(motorRunning ? F("ON") : F("OFF"));
-  }
-  lastEndstopState = currentEndstop;
-
-  // Only run motor if enabled
-  if (motorRunning)
-  {
-    if (stepper1.stepper.distanceToGo() == 0)
-    {
-      stepper1.stepper.move(cfg::GEAR_RATIO * cfg::STEPS_PER_REV); 
-    }
-    stepper1.stepper.run();
-  }
+  stepper1.stepper.run();
 }

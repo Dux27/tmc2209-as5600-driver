@@ -39,6 +39,8 @@ void StepperMotor::init()
 {
     pinMode(step_pin_, OUTPUT);
     pinMode(dir_pin_, OUTPUT);
+
+    // TODO: support for EN pin tied LOW
     if (en_pin_ != 0xFF)
         pinMode(en_pin_, OUTPUT);
 
@@ -99,21 +101,6 @@ bool StepperMotor::settingsMismatch()
     uint8_t irun_pct = rawToPercent(s.irun_register_value);
     uint8_t ihold_pct = rawToPercent(s.ihold_register_value);
 
-    // Serial.println(F("[TMC2209] Checking settings..."));
-    // Serial.print(F("Current -> microsteps="));
-    // Serial.print(ms);
-    // Serial.print(F(", IRUN%~"));
-    // Serial.print(irun_pct);
-    // Serial.print(F(", IHOLD%~"));
-    // Serial.println(ihold_pct);
-    // Serial.print(F("Desired -> microsteps="));
-    // Serial.print(cfg::MICROSTEPS);
-    // Serial.print(F(", IRUN%~"));
-    // Serial.print(cfg::RUN_CURRENT_PCT);
-    // Serial.print(F(", IHOLD%~"));
-    // Serial.println(cfg::HOLD_CURRENT_PCT);
-    // Serial.println();
-
     if (diff(irun_pct, cfg::RUN_CURRENT_PCT) > tolerance)
         return true;
     if (diff(ihold_pct, cfg::HOLD_CURRENT_PCT) > tolerance)
@@ -126,7 +113,10 @@ void StepperMotor::refreshConfigIfNeeded()
 {
     if (!driver_.isSetupAndCommunicating())
     {
-        Serial.println(F("[TMC2209] Error 002! Communication lost or driver reset. Reinitializing..."));
+        Serial.println(F("[TMC2209] "));
+        Serial.print(name_);
+        Serial.println(F(" - Error 002! Communication lost or driver reset. Reinitializing..."));
+        
         driver_.setup(uart_, cfg::BAUD_RATE, serial_addr_);
         driver_.setReplyDelay(5);
         applyConfig();
@@ -140,7 +130,11 @@ void StepperMotor::refreshConfigIfNeeded()
 
     if (settingsMismatch())
     {
-        Serial.println(F("[TMC2209] Error 003! Detected default/changed settings. Re-applying..."));
+
+        Serial.print(F("[TMC2209] "));
+        Serial.print(name_);
+        Serial.println(F(" - Error 003! Detected default/changed settings. Re-applying..."));
+
         Serial.print(F("Before -> microsteps="));
         Serial.print(ms_before);
         Serial.print(F(", IRUN%~"));
@@ -213,43 +207,84 @@ void StepperMotor::printTelemetry()
     Serial.println(st.over_temperature_warning);
 }
 
-// TO STUDY
 void StepperMotor::startEndstopMonitor(uint32_t sample_period_ms)
 {
+    // When endstop is turned off OR endstop has already started
     if (endstop_pin_ == 0xFF || endstop_thread_id_ >= 0)
         return;
 
+    // Check in case of 0 and assign minimum
     endstop_sample_period_ms_ = sample_period_ms ? sample_period_ms : 1;
+    // Start thread to monitor endstop state and pass 'this' pointer as argument so static thunk can call member function (method)
     endstop_thread_id_ = threads.addThread(endstopMonitorThunk_, this);
 }
 
+// Static thunk to call member function (method) from thread. They need to be static or free functions. Thats why we pass 'this' pointer as argument.
+// A thunk is a small adapter function that receives a generic argument (void*), converts it back to the correct object type, and then calls object logic.
+// Thread needs this type of function becouse memberfunctions have hidden 'this' pointer as first argument.
 void StepperMotor::endstopMonitorThunk_(void *arg)
 {
+
+    // 'arg' is actually 'this' pointer - StepperMotor*
+    // 'static_cast' is used to convert 'void*' back to 'StepperMotor*'
+    // 'self' is now a pointer to the StepperMotor instance
     auto *self = static_cast<StepperMotor *>(arg);
-    
+
     constexpr uint8_t DEBOUNCE_COUNT = 5;  // Must read same value 5 times in a row
-    uint8_t stableCount = 0;
-    bool lastReading = false;
+    uint8_t stable_count = 0;
+    bool last_reading = false;
     
     while (true)
     {
-        bool currentReading = (digitalRead(self->endstop_pin_) == LOW);     // Active LOW
+        bool current_reading = (digitalRead(self->endstop_pin_) == HIGH);     // Active LOW
         
-        if (currentReading == lastReading)
+        if (current_reading == last_reading)
         {
-            stableCount++;
-            if (stableCount >= DEBOUNCE_COUNT)
+            stable_count++;
+            if (stable_count >= DEBOUNCE_COUNT)
             {
-                self->endstop_triggered_ = currentReading;
-                stableCount = DEBOUNCE_COUNT;  // Prevent overflow
+                self->endstop_triggered_ = current_reading;
+                stable_count = DEBOUNCE_COUNT;  // Prevent overflow
             }
         }
         else
         {
-            stableCount = 0;
-            lastReading = currentReading;
+            stable_count = 0;
+            last_reading = current_reading;
         }
 
         threads.delay(self->endstop_sample_period_ms_);
     }
+}
+
+void StepperMotor::home()
+{
+    Serial.print(F("[TMC2209] "));
+    Serial.print(name_);
+    Serial.println(F(" - Starting homing procedure..."));
+
+    stepper.moveTo(-cfg::ONE_FULL_ROTATION_STEPS * 1);  
+
+    while (stepper.distanceToGo() != 0)
+    {
+        if (endstop_triggered_)
+        {
+            stepper.stop();
+            stepper.setCurrentPosition(0);
+            hommed_ = true;
+            
+            Serial.print(F("[TMC2209] "));
+            Serial.print(name_);
+            Serial.println(F(" - Homing complete."));
+            
+            delay(100);
+            return;  
+        }
+        stepper.run();
+        threads.yield();  
+    }
+
+    Serial.print(F("[TMC2209] "));
+    Serial.print(name_);
+    Serial.println(F(" - Error 004. Homing failed, endstop not triggered."));
 }
