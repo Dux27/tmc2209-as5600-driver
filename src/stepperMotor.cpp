@@ -263,6 +263,10 @@ void StepperMotor::home()
     Serial.print(name_);
     Serial.println(F(" - Starting homing procedure..."));
 
+    float original_speed = stepper.maxSpeed();
+    float homing_speed = original_speed * 0.6f;  
+    stepper.setMaxSpeed(homing_speed);
+
     stepper.moveTo(-cfg::ONE_FULL_ROTATION_STEPS * 1);  
 
     while (stepper.distanceToGo() != 0)
@@ -277,12 +281,16 @@ void StepperMotor::home()
             Serial.print(name_);
             Serial.println(F(" - Homing complete."));
             
+            stepper.setMaxSpeed(original_speed);
+            
             delay(100);
             return;  
         }
         stepper.run();
         threads.yield();  
     }
+
+    stepper.setMaxSpeed(original_speed);
 
     Serial.print(F("[TMC2209] "));
     Serial.print(name_);
