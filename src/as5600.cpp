@@ -88,6 +88,16 @@ uint16_t AS5600::calcMappedAbsPosition() const
     return 0xFFFF;
 }
 
+float AS5600::readPositionDeg() const
+{
+    uint16_t raw = readAbsPosition();
+    if (raw == 0xFFFF)
+        return -999.0f;     // Error code
+
+    float encoder_deg = (raw & 0x0FFF) * (360.0f / 4096.0f);
+    return encoder_deg / cfg::GEAR_RATIO;
+}
+
 int16_t AS5600::deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) const
 {
     int32_t delta = static_cast<int32_t>(end_steps) - static_cast<int32_t>(start_steps);

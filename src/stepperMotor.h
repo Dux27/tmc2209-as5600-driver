@@ -4,6 +4,7 @@
 #include <TMC2209.h>
 #include <AccelStepper.h>
 #include "config.h"
+#include "as5600.h"
 
 class StepperMotor
 {
@@ -31,7 +32,21 @@ public:
     void startEndstopMonitor(uint32_t sample_period_ms = 2);
     uint16_t endstopBool() const { return endstop_triggered_; }
 
-    void home();
+    float stepsToDeg(int32_t steps) const
+    {
+        return static_cast<float>(steps) / cfg::MICROSTEPS_PER_DEGREE;
+    }
+    long degToSteps(float degrees) const
+    {
+        return static_cast<long>(degrees * cfg::MICROSTEPS_PER_DEGREE);
+    }
+    float currentPositionDeg()
+    {
+        return stepsToDeg(stepper.currentPosition());
+    }
+    void moveToDeg(float degrees, AS5600 &encoder);
+
+    void home(AS5600 &encoder);
     bool isHomed() const { return hommed_; }
 
 private:

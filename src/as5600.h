@@ -12,6 +12,7 @@ public:
     bool init();
     uint16_t readAbsPosition() const;
     uint16_t calcMappedAbsPosition() const;
+    float readPositionDeg() const;
     int16_t deltaMicrosteps(uint16_t start_steps, uint16_t end_steps) const;
     float measureRPM(int16_t delta_microsteps, uint32_t delta_time_ms) const;
     void printTelemetry(float gear_ratio = 1.0f) const;

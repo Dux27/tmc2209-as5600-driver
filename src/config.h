@@ -19,5 +19,13 @@ namespace cfg {
     constexpr uint8_t HOLD_CURRENT_PCT = 20;
 
     // 'atomic' used to allow safe concurrent access from multiple threads
-    inline std::atomic<std::uint16_t> speed{5000};    // microsteps per second
+    inline std::atomic<std::uint16_t> speed{9000};    // microsteps per second
+
+    constexpr float HOME_OFFSET_DEG = -45.0f;
+    constexpr float MIN_DEG = -40.0f;
+    constexpr float MAX_DEG = 220.0f;
+    constexpr uint16_t SAMPLE_PERIOD_MS = 50;       
+    constexpr float ERROR_THRESHOLD_DEG = 0.5f;     
+    constexpr float MAX_CORRECTABLE_ERROR = 5.0f;   // ~1 encoder revolution
+    constexpr uint8_t MAX_CORRECTIONS = 5;          // Max correction attempts during moveToDeg
 }

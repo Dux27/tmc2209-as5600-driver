@@ -257,7 +257,137 @@ void StepperMotor::endstopMonitorThunk_(void *arg)
     }
 }
 
-void StepperMotor::home()
+void StepperMotor::moveToDeg(float degrees, AS5600 &encoder)
+{
+    degrees = constrain(degrees, cfg::MIN_DEG, cfg::MAX_DEG);
+
+    uint16_t encoder_last = encoder.calcMappedAbsPosition();
+    int32_t total_encoder_steps = 0;  
+    
+    float start_deg = currentPositionDeg();
+
+    stepper.moveTo(degToSteps(degrees));
+
+    uint32_t last_sample_time = millis();
+    while (stepper.distanceToGo() != 0)
+    {
+        stepper.run();
+        
+        // Sample encoder
+        if (millis() - last_sample_time >= cfg::SAMPLE_PERIOD_MS)
+        {
+            last_sample_time = millis();
+            uint16_t encoder_now = encoder.calcMappedAbsPosition();
+            int16_t delta = encoder.deltaMicrosteps(encoder_last, encoder_now);
+            total_encoder_steps += delta;
+            encoder_last = encoder_now;
+        }
+
+        threads.yield();
+    }
+    delay(50);
+    
+    // Final sample
+    uint16_t encoder_now = encoder.calcMappedAbsPosition();
+    int16_t delta = encoder.deltaMicrosteps(encoder_last, encoder_now);
+    total_encoder_steps += delta;
+
+    float actual_movement = (total_encoder_steps * 360.0f) / (cfg::STEPS_PER_REV * gear_ratio);
+    float actual_deg = start_deg + actual_movement;
+    float error_deg = degrees - actual_deg;  
+
+    // Sync AccelStepper with encoder reality
+    stepper.setCurrentPosition(degToSteps(actual_deg));
+
+    Serial.print(F("[TMC2209] "));
+    Serial.print(name_);
+    Serial.print(F(" - Target: "));
+    Serial.print(degrees);
+    Serial.print(F(" deg, Actual: "));
+    Serial.print(actual_deg);
+    Serial.print(F(" deg, Error: "));
+    Serial.print(error_deg);
+    Serial.println(F(" deg"));
+
+    uint8_t corrections = 0;
+
+    while (abs(error_deg) > cfg::ERROR_THRESHOLD_DEG && 
+           abs(error_deg) < cfg::MAX_CORRECTABLE_ERROR && 
+           corrections < cfg::MAX_CORRECTIONS)
+    {
+        Serial.print(F("[TMC2209] "));
+        Serial.print(name_);
+        Serial.print(F(" - Correcting error: "));
+        Serial.print(error_deg);
+        Serial.println(F(" deg..."));
+
+        encoder_last = encoder.calcMappedAbsPosition();
+        total_encoder_steps = 0;
+        float correction_start_deg = currentPositionDeg();
+        
+        stepper.moveTo(degToSteps(degrees));
+        
+        if (stepper.distanceToGo() == 0)
+            break;
+        
+        while (stepper.distanceToGo() != 0)
+        {
+            stepper.run();
+            
+            encoder_now = encoder.calcMappedAbsPosition();
+            delta = encoder.deltaMicrosteps(encoder_last, encoder_now);
+            total_encoder_steps += delta;
+            encoder_last = encoder_now;
+            
+            threads.yield();
+        }
+        delay(50);
+        
+        encoder_now = encoder.calcMappedAbsPosition();
+        delta = encoder.deltaMicrosteps(encoder_last, encoder_now);
+        total_encoder_steps += delta;
+
+        float actual_correction = (total_encoder_steps * 360.0f) / (cfg::STEPS_PER_REV * gear_ratio);
+        actual_deg = correction_start_deg + actual_correction;
+        error_deg = degrees - actual_deg;
+
+        // Sync position after correction
+        stepper.setCurrentPosition(degToSteps(actual_deg));
+
+        Serial.print(F("[TMC2209] "));
+        Serial.print(name_);
+        Serial.print(F(" - After correction: Actual: "));
+        Serial.print(actual_deg);
+        Serial.print(F(" deg, Remaining error: "));
+        Serial.print(error_deg);
+        Serial.println(F(" deg"));
+        
+        corrections++;
+    }
+
+    if (abs(error_deg) > cfg::MAX_CORRECTABLE_ERROR)
+    {
+        Serial.print(F("[TMC2209] "));
+        Serial.print(name_);
+        Serial.print(F(" - Error too large: "));
+        Serial.print(error_deg);
+        Serial.print(F(" deg. Final position: "));
+        Serial.print(currentPositionDeg());
+        Serial.println(F(" deg."));
+    }
+    else if (corrections > 0)
+    {
+        Serial.print(F("[TMC2209] "));
+        Serial.print(name_);
+        Serial.print(F(" - Done with "));
+        Serial.print(corrections);
+        Serial.print(F(" corrections. Final position: "));
+        Serial.print(currentPositionDeg());
+        Serial.println(F(" deg."));
+    }
+}
+
+void StepperMotor::home(AS5600 &encoder)
 {
     Serial.print(F("[TMC2209] "));
     Serial.print(name_);
@@ -274,14 +404,25 @@ void StepperMotor::home()
         if (endstop_triggered_)
         {
             stepper.stop();
-            stepper.setCurrentPosition(0);
+            long home_steps = degToSteps(cfg::HOME_OFFSET_DEG);
+            stepper.setCurrentPosition(home_steps);
             hommed_ = true;
-            
+
             Serial.print(F("[TMC2209] "));
             Serial.print(name_);
-            Serial.println(F(" - Homing complete."));
-            
+            Serial.print(F(" - Endstop hit. Home set to "));
+            Serial.print(cfg::HOME_OFFSET_DEG);                       
+            Serial.println(F(" deg. Moving to 0..."));
+
             stepper.setMaxSpeed(original_speed);
+            
+            moveToDeg(0.0f, encoder);
+
+            Serial.print(F("[TMC2209] "));
+            Serial.print(name_);
+            Serial.print(F(" - Homing complete. Current position: "));
+            Serial.print(currentPositionDeg());
+            Serial.println(F(" deg."));
             
             delay(100);
             return;  
